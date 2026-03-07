@@ -1,0 +1,7 @@
+pandas
+streamlit
+yfinance<=0.2.40
+multitasking<0.0.12
+deprecated
+mftool
+requests
