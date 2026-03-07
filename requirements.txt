@@ -6,5 +6,4 @@ deprecated
 mftool
 requests
 altair<5
-requests
-altair<5
+pyarrow<15
