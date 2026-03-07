@@ -1,8 +1,10 @@
 pandas
 streamlit
-yfinance<=0.2.40
-multitasking<0.0.12
+yfinance
+multitasking
 deprecated
 mftool
+requests
+altair<5
 requests
 altair<5
