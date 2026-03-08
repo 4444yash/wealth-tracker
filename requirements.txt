@@ -5,6 +5,3 @@ multitasking
 deprecated
 mftool
 requests
-altair<5
-pyarrow<15
-numpy<2
