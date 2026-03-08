@@ -15,9 +15,7 @@ st.markdown("Track your Stocks, Crypto, and Mutual Fund investments using Lumpsu
 @st.cache_data(show_spinner="Fetching Asset Data...")
 def get_yfinance_data(ticker, start, end):
     try:
-        session = requests.Session()
-        session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'})
-        ticker_obj = yf.Ticker(ticker, session=session)
+        ticker_obj = yf.Ticker(ticker)
         df = ticker_obj.history(start=start, end=end)
         if not df.empty:
             df = df[['Close']].rename(columns={'Close': 'Price'})
