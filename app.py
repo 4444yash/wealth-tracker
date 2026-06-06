@@ -683,15 +683,20 @@ elif asset_id:
                     rate_label = "Annualized Return (XIRR)" if invest_type == "SIP" else "Annualized Return (CAGR)"
                     st.markdown(metric_card(rate_label, f"{annualized_rate * 100:.2f}%", delta=abs_return, is_percent=True, curr_symbol=curr_symbol), unsafe_allow_html=True)
 
-            # 2. Charts (Growth Chart & Cost Averaging visualizer placed above the tax breakdown)
+            # 2. Charts (Growth Chart & Purchase Entry Visualizer placed above the tax breakdown)
             fig_growth = plot_growth_chart(ts_df, asset_name)
             st.plotly_chart(fig_growth, use_container_width=True)
             
+            st.markdown("### 🎯 Price Trend & Purchase Visualizer")
             if invest_type == "SIP":
-                st.markdown("### 🎯 Rupee Cost Averaging Visualizer")
                 st.write("This chart shows when your monthly purchases were made relative to the asset's price. Notice how SIP automatically buys more units (dots) when the price dips, lowering your average cost.")
-                fig_averaging = plot_cost_averaging_chart(data, invested_dates, asset_name)
-                st.plotly_chart(fig_averaging, use_container_width=True)
+                entry_dates = invested_dates
+            else:
+                st.write("This chart shows your lumpsum purchase entry point (yellow dot) relative to the asset's price trend over time.")
+                entry_dates = set([data.index[0]])
+                
+            fig_averaging = plot_cost_averaging_chart(data, entry_dates, asset_name)
+            st.plotly_chart(fig_averaging, use_container_width=True)
 
             # 3. Pre-Tax vs Post-Tax Breakdown
             if apply_tax:
