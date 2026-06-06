@@ -20,75 +20,78 @@ html, body, [class*="css"], .stMarkdown {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-/* Glassmorphism card styling for metrics */
+/* Dark theme widgets (always legible on both light and dark backgrounds) */
 div.metric-card {
-    background: rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding: 1.25rem 1.5rem;
-    box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.2);
-    margin-bottom: 1rem;
-    transition: all 0.3s ease;
+    background: #1E293B !important;
+    border: 1px solid #334155 !important;
+    border-radius: 12px !important;
+    padding: 1.25rem 1.5rem !important;
+    box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.15) !important;
+    margin-bottom: 1rem !important;
+    transition: all 0.3s ease !important;
 }
 
 div.metric-card:hover {
-    transform: translateY(-2px);
-    border-color: rgba(0, 209, 178, 0.4);
-    box-shadow: 0 8px 30px 0 rgba(0, 209, 178, 0.15);
+    transform: translateY(-2px) !important;
+    border-color: #14B8A6 !important;
+    box-shadow: 0 8px 30px 0 rgba(20, 184, 166, 0.15) !important;
 }
 
 .metric-title {
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: #8C9BAE;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 0.4rem;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    color: #94A3B8 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.06em !important;
+    margin-bottom: 0.4rem !important;
 }
 
 .metric-value {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: #FFFFFF;
-    line-height: 1.2;
+    font-size: 1.75rem !important;
+    font-weight: 700 !important;
+    color: #F8FAFC !important;
+    line-height: 1.2 !important;
 }
 
 .metric-delta-pos {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: #00D1B2;
-    margin-top: 0.3rem;
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+    color: #2DD4BF !important;
+    margin-top: 0.3rem !important;
 }
 
 .metric-delta-neg {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: #FF3860;
-    margin-top: 0.3rem;
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+    color: #F87171 !important;
+    margin-top: 0.3rem !important;
 }
 
 /* Beautiful explanation cards */
 .info-card {
-    background: rgba(50, 115, 220, 0.08);
-    border-left: 4px solid #3273DC;
-    border-radius: 4px 12px 12px 4px;
-    padding: 1.25rem;
-    margin-top: 1.5rem;
-    color: #E2E8F0;
+    background: #0F172A !important;
+    border-left: 4px solid #3b82f6 !important;
+    border-radius: 4px 12px 12px 4px !important;
+    padding: 1.25rem !important;
+    margin-top: 1.5rem !important;
+    color: #E2E8F0 !important;
+}
+
+.info-card, .info-card * {
+    color: #E2E8F0 !important;
 }
 
 .info-card-title {
-    font-weight: 700;
-    color: #FFFFFF;
-    margin-bottom: 0.5rem;
+    font-weight: 700 !important;
+    color: #FFFFFF !important;
+    margin-bottom: 0.5rem !important;
 }
 
 /* Tabs customization */
 button[data-baseweb="tab"] {
-    font-size: 1rem;
-    font-weight: 600;
-    padding: 0.75rem 1.5rem;
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+    padding: 0.75rem 1.5rem !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -97,7 +100,7 @@ st.title("📈 Wealth Tracker")
 st.markdown("Track your Stocks, Crypto, and Mutual Fund investments using Lumpsum or SIP strategies, with built-in Indian Capital Gains Tax analytics.")
 
 # --- UI Helper ---
-def metric_card(title, value, delta=None, is_percent=False, curr_symbol="$"):
+def metric_card(title, value, delta=None, is_percent=False, curr_symbol="₹"):
     delta_html = ""
     if delta is not None:
         if is_percent:
@@ -118,12 +121,7 @@ def metric_card(title, value, delta=None, is_percent=False, curr_symbol="$"):
     return card_html
 
 def get_currency_symbol(asset_id, category):
-    if category == "Mutual Fund":
-        return "₹"
-    if category in ["Stocks", "Crypto"]:
-        if asset_id.endswith(".NS") or asset_id.endswith(".BO") or "-INR" in asset_id or "INR=" in asset_id:
-            return "₹"
-    return "$"
+    return "₹"
 
 # --- Timeseries Calculations ---
 def calculate_sip_timeseries(data, amount):
@@ -672,7 +670,7 @@ elif asset_id:
         tab1, tab2, tab3 = st.tabs(["📊 Performance Dashboard", "⚖️ SIP vs Lumpsum Comparison", "🔮 Future Goal Planner"])
         
         with tab1:
-            # Metric cards
+            # 1. Metric cards
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown(metric_card("Total Amount Invested", f"{curr_symbol} {total_invested:,.2f}", curr_symbol=curr_symbol), unsafe_allow_html=True)
@@ -684,8 +682,18 @@ elif asset_id:
                 else:
                     rate_label = "Annualized Return (XIRR)" if invest_type == "SIP" else "Annualized Return (CAGR)"
                     st.markdown(metric_card(rate_label, f"{annualized_rate * 100:.2f}%", delta=abs_return, is_percent=True, curr_symbol=curr_symbol), unsafe_allow_html=True)
+
+            # 2. Charts (Growth Chart & Cost Averaging visualizer placed above the tax breakdown)
+            fig_growth = plot_growth_chart(ts_df, asset_name)
+            st.plotly_chart(fig_growth, use_container_width=True)
             
-            # Pre-Tax vs Post-Tax Comparison block
+            if invest_type == "SIP":
+                st.markdown("### 🎯 Rupee Cost Averaging Visualizer")
+                st.write("This chart shows when your monthly purchases were made relative to the asset's price. Notice how SIP automatically buys more units (dots) when the price dips, lowering your average cost.")
+                fig_averaging = plot_cost_averaging_chart(data, invested_dates, asset_name)
+                st.plotly_chart(fig_averaging, use_container_width=True)
+
+            # 3. Pre-Tax vs Post-Tax Breakdown
             if apply_tax:
                 st.markdown("### 📋 Pre-Tax vs. Post-Tax Breakdown")
                 
@@ -720,7 +728,7 @@ elif asset_id:
                     fig_bars = plot_tax_comparison_bars(total_invested, current_value, post_tax_value, curr_symbol)
                     st.plotly_chart(fig_bars, use_container_width=True)
 
-            # Key statistics grid
+            # 4. Key Portfolio Statistics
             st.markdown("### 📊 Key Portfolio Statistics")
             sub_col1, sub_col2, sub_col3, sub_col4 = st.columns(4)
             current_price = float(data.iloc[-1]['Price'])
@@ -733,16 +741,6 @@ elif asset_id:
             with sub_col4:
                 multiplier = current_value / total_invested if total_invested > 0 else 0.0
                 st.metric("Wealth Multiplier (Pre-Tax)", f"{multiplier:.2f}x")
-                
-            # Plotly chart
-            fig_growth = plot_growth_chart(ts_df, asset_name)
-            st.plotly_chart(fig_growth, use_container_width=True)
-            
-            if invest_type == "SIP":
-                st.markdown("### 🎯 Rupee Cost Averaging Visualizer")
-                st.write("This chart shows when your monthly purchases were made relative to the asset's price. Notice how SIP automatically buys more units (dots) when the price dips, lowering your average cost.")
-                fig_averaging = plot_cost_averaging_chart(data, invested_dates, asset_name)
-                st.plotly_chart(fig_averaging, use_container_width=True)
                 
         with tab2:
             sip_ts, lump_ts, total_capital = compute_comparison(data, amount)
