@@ -717,10 +717,10 @@ elif asset_id:
                         f"{post_tax_abs_return:.2f}%"
                     ],
                     "Capital Gains Tax impact": [
-                        f"- {curr_symbol} {tax_amount:,.2f}",
-                        f"- {curr_symbol} {tax_amount:,.2f}",
-                        f"- {(annualized_rate - post_tax_annualized_rate) * 100:.2f}%",
-                        f"- {abs_return - post_tax_abs_return:.2f}%"
+                        f"-{curr_symbol}{tax_amount:,.2f}",
+                        f"-{curr_symbol}{tax_amount:,.2f}",
+                        f"-{(annualized_rate - post_tax_annualized_rate) * 100:.2f}%",
+                        f"-{abs_return - post_tax_abs_return:.2f}%"
                     ]
                 }
                 df_breakdown = pd.DataFrame(breakdown_data)
