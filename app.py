@@ -5,7 +5,7 @@ from mftool import Mftool
 import datetime
 import requests
 import plotly.graph_objects as go
-from finance_utils import to_date, xirr, cagr, calculate_indian_tax, project_future_tax
+from finance_utils import to_date, xirr, cagr, calculate_indian_tax, project_future_tax, run_swp_simulation, solve_sustainable_withdrawal
 
 # --- Page Config ---
 st.set_page_config(page_title="Wealth Tracker", page_icon="📈", layout="wide")
@@ -436,6 +436,63 @@ def plot_future_projection(monthly_amount, annual_rate, total_years, sip_years=N
         yaxis=dict(gridcolor='rgba(255,255,255,0.05)')
     )
     return fig, portfolio_vals[-1], invested_vals[-1]
+
+def plot_swp_chart(res, curr_symbol="₹"):
+    dates = res['dates']
+    portfolio_vals = res['portfolio_values']
+    withdrawals = res['withdrawals']
+    taxes = res['taxes']
+    
+    # Calculate cumulative withdrawn and taxes
+    cum_withdrawn = pd.Series(withdrawals).cumsum().tolist()
+    cum_taxes = pd.Series(taxes).cumsum().tolist()
+    
+    fig = go.Figure()
+    
+    fig.add_trace(go.Scatter(
+        x=dates,
+        y=portfolio_vals,
+        mode='lines',
+        name='Portfolio Value',
+        line=dict(color='#00D1B2', width=3),
+        fill='tozeroy',
+        fillcolor='rgba(0, 209, 178, 0.08)'
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=dates,
+        y=cum_withdrawn,
+        mode='lines',
+        name='Cumulative Withdrawn',
+        line=dict(color='#3273DC', width=2, dash='dash')
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=dates,
+        y=cum_taxes,
+        mode='lines',
+        name='Cumulative Tax Paid',
+        line=dict(color='#FF3860', width=1.5, dash='dot')
+    ))
+    
+    fig.update_layout(
+        title=dict(
+            text="SWP Portfolio & Cash Flow Timeline",
+            font=dict(size=18, family="Plus Jakarta Sans", color="#FFFFFF")
+        ),
+        xaxis_title="Timeline",
+        yaxis_title="Value",
+        template="plotly_dark",
+        hovermode="x unified",
+        margin=dict(l=40, r=40, t=60, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(gridcolor='rgba(255,255,255,0.05)'),
+        yaxis=dict(gridcolor='rgba(255,255,255,0.05)')
+    )
+    return fig
+
 
 # --- Data Fetching Functions ---
 @st.cache_data(show_spinner="Fetching Asset Data...")
@@ -979,6 +1036,333 @@ elif asset_id:
             
             fig_proj, _, _ = plot_future_projection(proj_amount, proj_rate, proj_years, sip_years=future_sip_years, tax_amount=proj_tax)
             st.plotly_chart(fig_proj, use_container_width=True)
+            
+            # --- Systematic Withdrawal Plan (SWP) Simulator ---
+            st.markdown("---")
+            st.markdown("### 💸 Systematic Withdrawal Plan (SWP) Simulator")
+            st.write("Simulate post-retirement withdrawals with tax-aware, inflation-adjusted, and sustainability-focused modeling.")
+            
+            # Default SWP Corpus and Basis based on SIP projector
+            default_swp_corpus = final_proj_val_post if apply_tax else final_proj_val_pre
+            if final_proj_val_pre > 0:
+                default_swp_basis = default_swp_corpus * (total_proj_invested / final_proj_val_pre)
+            else:
+                default_swp_basis = default_swp_corpus
+                
+            swp_col1, swp_col2 = st.columns(2)
+            with swp_col1:
+                initial_swp_corpus = st.number_input(
+                    "Initial SWP Corpus (₹)",
+                    min_value=0.0,
+                    value=float(default_swp_corpus),
+                    step=50000.0,
+                    help="The starting value of your retirement portfolio. Auto-filled from the SIP Projector's final value."
+                )
+            with swp_col2:
+                initial_swp_basis = st.number_input(
+                    "Initial Cost Basis (₹)",
+                    min_value=0.0,
+                    value=float(default_swp_basis),
+                    step=50000.0,
+                    help="The total capital invested to build this corpus. Used to calculate capital gains tax on withdrawals."
+                )
+                
+            swp_mode = st.radio(
+                "SWP Calculation Mode",
+                ["Calculate Sustainable Withdrawal (Specify Period)", "Calculate Depletion Timeline (Specify Monthly Withdrawal)"],
+                horizontal=True,
+                help="Choose whether to solve for a sustainable monthly payout for a fixed duration, or check how long a specific withdrawal amount will last."
+            )
+            
+            col_ctrl1, col_ctrl2 = st.columns(2)
+            
+            with col_ctrl1:
+                if swp_mode == "Calculate Sustainable Withdrawal (Specify Period)":
+                    swp_years = st.slider(
+                        "Target Withdrawal Period (Years)",
+                        min_value=1,
+                        max_value=40,
+                        value=25,
+                        step=1,
+                        help="The number of years you want your portfolio to last."
+                    )
+                else:
+                    # Depletion Timeline Mode: input withdrawal amount
+                    # Default monthly withdrawal is ~4% annual withdrawal rate
+                    suggested_w = max(1000.0, round((initial_swp_corpus * 0.04) / 12, -3))
+                    
+                    # We will read this from the advanced settings toggle below
+                    # But since python executes top-to-bottom, we can check a temporary flag
+                    # to see if the user selected % of portfolio.
+                    # To avoid circular rendering, we can define percent_withdrawal first using st.checkbox's state if we set a key,
+                    # or just put the % checkbox in the advanced section and let it refresh the input label.
+                    # Streamlit handles keys perfectly:
+                    percent_withdrawal = st.session_state.get("percent_withdrawal", False)
+                    
+                    if percent_withdrawal:
+                        monthly_withdrawal = st.number_input(
+                            "Target Annual Withdrawal Rate (%)",
+                            min_value=0.1,
+                            max_value=50.0,
+                            value=4.0,
+                            step=0.5,
+                            help="The annual percentage of the portfolio value to withdraw (e.g., 4.0 for the 4% rule)."
+                        )
+                    else:
+                        monthly_withdrawal = st.number_input(
+                            "Target Monthly Withdrawal (₹)",
+                            min_value=100.0,
+                            value=float(suggested_w),
+                            step=1000.0,
+                            help="The gross amount you wish to withdraw each month."
+                        )
+                        
+            with col_ctrl2:
+                if swp_mode == "Calculate Sustainable Withdrawal (Specify Period)":
+                    st.info("ℹ️ The engine will compute the maximum monthly withdrawal that keeps your portfolio above zero for the target period.")
+                else:
+                    swp_years = st.slider(
+                        "Max Simulation Period (Years)",
+                        min_value=1,
+                        max_value=40,
+                        value=25,
+                        step=1,
+                        help="The maximum period to run the simulation if the portfolio does not deplete."
+                    )
+                    
+            with st.expander("🛠️ Advanced SWP Settings"):
+                adv_col1, adv_col2 = st.columns(2)
+                with adv_col1:
+                    swp_rate = st.slider(
+                        "Expected Annual Return Rate during SWP (%)",
+                        min_value=1.0,
+                        max_value=50.0,
+                        value=float(proj_rate),
+                        step=0.5,
+                        help="The expected return of your portfolio during the withdrawal phase."
+                    )
+                    swp_inflation = st.slider(
+                        "Annual Inflation Rate (%)",
+                        min_value=0.0,
+                        max_value=20.0,
+                        value=6.0,
+                        step=0.5,
+                        help="Expected average inflation. If adjusted, withdrawals will increase annually to maintain purchasing power."
+                    )
+                with adv_col2:
+                    swp_tax_option = st.selectbox(
+                        "Tax Rules for Retirement Phase",
+                        ["Inherit from Sidebar Asset", "Equity (12.5% LTCG, ₹1.25L exemption)", "Debt Funds (Taxed at Slab)", "Crypto (30% Flat Tax)", "No Tax (Tax-free)"],
+                        help="Select how withdrawals are taxed. By default, it inherits the rules based on the main asset selected."
+                    )
+                    
+                    inflation_adjusted = st.checkbox(
+                        "Inflation-adjusted withdrawals",
+                        value=True,
+                        help="Increase withdrawals annually by the inflation rate to maintain real purchasing power."
+                    )
+                    
+                    if swp_mode == "Calculate Depletion Timeline (Specify Monthly Withdrawal)":
+                        percent_withdrawal = st.checkbox(
+                            "Use % of Portfolio Strategy",
+                            value=False,
+                            key="percent_withdrawal",
+                            help="Withdraw a fixed percentage of the remaining portfolio annually rather than a fixed Rupee amount."
+                        )
+                    else:
+                        percent_withdrawal = False
+                        
+            # Map SWP Tax Rules
+            if swp_tax_option == "Inherit from Sidebar Asset":
+                swp_category = category
+                swp_mf_type = mf_type
+                swp_slab_rate = slab_rate
+            elif swp_tax_option == "Equity (12.5% LTCG, ₹1.25L exemption)":
+                swp_category = "Mutual Fund"
+                swp_mf_type = "Equity-Oriented"
+                swp_slab_rate = 0.0
+            elif swp_tax_option == "Debt Funds (Taxed at Slab)":
+                swp_category = "Mutual Fund"
+                swp_mf_type = "Debt-Oriented"
+                swp_slab_rate = slab_rate
+            elif swp_tax_option == "Crypto (30% Flat Tax)":
+                swp_category = "Crypto"
+                swp_mf_type = None
+                swp_slab_rate = 0.0
+            else: # No Tax (Tax-free)
+                swp_category = "Mutual Fund"
+                swp_mf_type = "Debt-Oriented"
+                swp_slab_rate = 0.0
+                
+            if not apply_tax:
+                swp_category = "Mutual Fund"
+                swp_mf_type = "Debt-Oriented"
+                swp_slab_rate = 0.0
+                
+            # Run simulation or solver
+            if swp_mode == "Calculate Sustainable Withdrawal (Specify Period)":
+                solved_w = solve_sustainable_withdrawal(
+                    initial_corpus=initial_swp_corpus,
+                    initial_basis=initial_swp_basis,
+                    annual_return_rate=swp_rate,
+                    inflation_rate=swp_inflation,
+                    category=swp_category,
+                    mf_type=swp_mf_type,
+                    slab_rate_pct=swp_slab_rate,
+                    years=swp_years,
+                    inflation_adjusted=inflation_adjusted
+                )
+                
+                res = run_swp_simulation(
+                    initial_corpus=initial_swp_corpus,
+                    initial_basis=initial_swp_basis,
+                    monthly_withdrawal=solved_w,
+                    annual_return_rate=swp_rate,
+                    inflation_rate=swp_inflation,
+                    category=swp_category,
+                    mf_type=swp_mf_type,
+                    slab_rate_pct=swp_slab_rate,
+                    max_years=swp_years,
+                    inflation_adjusted=inflation_adjusted,
+                    percent_withdrawal=False
+                )
+                display_w = solved_w
+            else:
+                res = run_swp_simulation(
+                    initial_corpus=initial_swp_corpus,
+                    initial_basis=initial_swp_basis,
+                    monthly_withdrawal=monthly_withdrawal,
+                    annual_return_rate=swp_rate,
+                    inflation_rate=swp_inflation,
+                    category=swp_category,
+                    mf_type=swp_mf_type,
+                    slab_rate_pct=swp_slab_rate,
+                    max_years=swp_years,
+                    inflation_adjusted=inflation_adjusted,
+                    percent_withdrawal=percent_withdrawal
+                )
+                if percent_withdrawal:
+                    display_w = res['withdrawals'][0] if res['withdrawals'] else 0.0
+                else:
+                    display_w = monthly_withdrawal
+                    
+            # Calculate metrics for display
+            post_tax_income = res['in_hand_withdrawals'][0] if len(res['in_hand_withdrawals']) > 0 else 0.0
+            swr_val = (12 * display_w) / initial_swp_corpus * 100 if initial_swp_corpus > 0 else 0.0
+            
+            # Survival indicator logic
+            if res['depleted']:
+                survival_status = "Depletes Early"
+                survival_color = "red"
+                survival_icon = "🔴"
+            elif res['portfolio_values'][-1] < initial_swp_corpus * 0.1 or swr_val > 5.5:
+                survival_status = "Risky / Critical"
+                survival_color = "yellow"
+                survival_icon = "🟡"
+            else:
+                survival_status = "Sustainable"
+                survival_color = "green"
+                survival_icon = "🟢"
+                
+            # Display metrics cards
+            st.markdown("#### 📊 Key SWP Metrics")
+            m_col1, m_col2, m_col3 = st.columns(3)
+            with m_col1:
+                income_label = "Initial Post-Tax Monthly Income"
+                st.markdown(metric_card(income_label, f"{curr_symbol} {post_tax_income:,.2f}", curr_symbol=curr_symbol), unsafe_allow_html=True)
+            with m_col2:
+                st.markdown(metric_card("Total Amount Withdrawn", f"{curr_symbol} {res['total_withdrawn']:,.2f}", curr_symbol=curr_symbol), unsafe_allow_html=True)
+            with m_col3:
+                st.markdown(metric_card("Total Capital Gains Tax Paid", f"{curr_symbol} {res['total_tax_paid']:,.2f}", delta=-res['total_tax_paid'] if res['total_tax_paid'] > 0 else None, curr_symbol=curr_symbol), unsafe_allow_html=True)
+                
+            m_col4, m_col5, m_col6 = st.columns(3)
+            with m_col4:
+                lifespan_text = f"{res['years_lasted']:.1f} Years"
+                if res['depleted']:
+                    lifespan_text += " (Depleted)"
+                else:
+                    lifespan_text += " (Sustainable)"
+                st.markdown(metric_card("Portfolio Lifespan", lifespan_text, curr_symbol=curr_symbol), unsafe_allow_html=True)
+            with m_col5:
+                st.markdown(metric_card("Remaining Portfolio Balance", f"{curr_symbol} {res['portfolio_values'][-1]:,.2f}", curr_symbol=curr_symbol), unsafe_allow_html=True)
+            with m_col6:
+                st.markdown(metric_card("Safe Withdrawal Rate (SWR)", f"{swr_val:.2f}%", curr_symbol=""), unsafe_allow_html=True)
+                
+            # Sustainability info callout
+            if survival_icon == "🟢":
+                st.success(f"🟢 **Sustainability Status: {survival_status}** | Your portfolio sustains withdrawals for the full {swp_years} years. Your initial Safe Withdrawal Rate of {swr_val:.2f}% is within or close to the recommended 4% retirement benchmark.")
+            elif survival_icon == "🟡":
+                st.warning(f"🟡 **Sustainability Status: {survival_status}** | Your portfolio survives but is risky. It leaves a very small remaining corpus (< 10% of initial) or has an SWR ({swr_val:.2f}%) higher than the 4% benchmark. Watch out for inflation!")
+            else:
+                st.error(f"🔴 **Sustainability Status: {survival_status}** | Your portfolio runs out of funds in {res['years_lasted']:.1f} years. Consider reducing your monthly withdrawal amount, increasing your initial retirement corpus, or lowering your retirement expectations.")
+                
+            # Timeline Chart
+            st.plotly_chart(plot_swp_chart(res, curr_symbol), use_container_width=True)
+            
+            # Smart Insights Engine
+            st.markdown("#### 🧠 Smart Insights Engine")
+            insights = []
+            
+            if res['depleted']:
+                insights.append(f"🔴 **Portfolio Depletion**: Funds run out in **{res['years_lasted']:.1f} years** under simulated parameters.")
+            else:
+                insights.append(f"🟢 **Portfolio Sustainability**: Portfolio successfully sustains withdrawals for the entire **{swp_years} years** and leaves a remaining balance of **{curr_symbol}{res['portfolio_values'][-1]:,.2f}**.")
+                
+            if res['depleted'] and not percent_withdrawal:
+                reduced_w = display_w * 0.9
+                res_reduced = run_swp_simulation(
+                    initial_corpus=initial_swp_corpus,
+                    initial_basis=initial_swp_basis,
+                    monthly_withdrawal=reduced_w,
+                    annual_return_rate=swp_rate,
+                    inflation_rate=swp_inflation,
+                    category=swp_category,
+                    mf_type=swp_mf_type,
+                    slab_rate_pct=swp_slab_rate,
+                    max_years=swp_years,
+                    inflation_adjusted=inflation_adjusted,
+                    percent_withdrawal=False
+                )
+                if not res_reduced['depleted']:
+                    insights.append(f"💡 **Lifespan Extension**: Reducing your monthly withdrawal by 10% (to **{curr_symbol}{reduced_w:,.0f}**) makes your portfolio **fully sustainable** for the entire {swp_years} years.")
+                else:
+                    extension = res_reduced['years_lasted'] - res['years_lasted']
+                    if extension > 0.1:
+                        insights.append(f"💡 **Lifespan Extension**: Reducing your monthly withdrawal by 10% (to **{curr_symbol}{reduced_w:,.0f}**) extends your portfolio lifespan by **{extension:.1f} years** (lasts {res_reduced['years_lasted']:.1f} years).")
+                        
+            if inflation_adjusted and swp_inflation > 0.0:
+                res_no_inf = run_swp_simulation(
+                    initial_corpus=initial_swp_corpus,
+                    initial_basis=initial_swp_basis,
+                    monthly_withdrawal=display_w,
+                    annual_return_rate=swp_rate,
+                    inflation_rate=0.0,
+                    category=swp_category,
+                    mf_type=swp_mf_type,
+                    slab_rate_pct=swp_slab_rate,
+                    max_years=swp_years,
+                    inflation_adjusted=False,
+                    percent_withdrawal=percent_withdrawal
+                )
+                if res['depleted']:
+                    if not res_no_inf['depleted']:
+                        insights.append(f"🎈 **Inflation Impact**: Inflation-adjusted withdrawals reduce your portfolio lifespan from fully sustainable to **{res['years_lasted']:.1f} years**.")
+                    else:
+                        extension = res_no_inf['years_lasted'] - res['years_lasted']
+                        if extension > 0.1:
+                            insights.append(f"🎈 **Inflation Impact**: Adjusting withdrawals for inflation reduces your portfolio lifespan by **{extension:.1f} years** (would last {res_no_inf['years_lasted']:.1f} years without inflation).")
+                else:
+                    diff_corpus = res_no_inf['portfolio_values'][-1] - res['portfolio_values'][-1]
+                    if diff_corpus > 100.0:
+                        insights.append(f"🎈 **Inflation Impact**: Adjusting withdrawals for inflation reduces your final remaining corpus by **{curr_symbol}{diff_corpus:,.2f}** (would be **{curr_symbol}{res_no_inf['portfolio_values'][-1]:,.2f}** without inflation).")
+                        
+            if res['total_tax_paid'] > 0.0:
+                tax_impact_pct = (res['total_tax_paid'] / res['total_withdrawn']) * 100 if res['total_withdrawn'] > 0 else 0.0
+                insights.append(f"💸 **Tax Impact**: Capital gains taxes reduce your effective retirement income by **{tax_impact_pct:.1f}%**. Total estimated tax paid over the simulation is **{curr_symbol}{res['total_tax_paid']:,.2f}**.")
+                
+            for insight in insights:
+                st.markdown(f"- {insight}")
+
             
         # Education section
         st.markdown("---")

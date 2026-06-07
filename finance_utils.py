@@ -266,3 +266,151 @@ def project_future_tax(category, mf_type, slab_rate_pct, proj_amount, annual_rat
         tax = (0.125 * taxable_ltcg) + (0.20 * max(0.0, stcg_gains))
         
     return tax, total_fv
+
+def run_swp_simulation(initial_corpus, initial_basis, monthly_withdrawal, annual_return_rate, inflation_rate, category, mf_type, slab_rate_pct, max_years, inflation_adjusted=False, percent_withdrawal=False):
+    """
+    Simulate systematic withdrawals month-by-month.
+    
+    Returns a dict with simulation timeline, values, and stats.
+    """
+    months = int(max_years * 12)
+    monthly_rate = (annual_return_rate / 100.0) / 12
+    
+    portfolio = float(initial_corpus)
+    basis = float(initial_basis)
+    
+    portfolio_values = [portfolio]
+    withdrawals = []
+    taxes = []
+    in_hand_withdrawals = []
+    dates = []
+    
+    total_withdrawn = 0.0
+    total_tax_paid = 0.0
+    
+    w_amount = float(monthly_withdrawal)
+    today = datetime.date.today()
+    
+    yearly_gain = 0.0
+    depleted = False
+    months_lasted = 0
+    
+    for m in range(1, months + 1):
+        dt = today + datetime.timedelta(days=m * 30.436)
+        dates.append(dt)
+        
+        if portfolio <= 0:
+            portfolio = 0.0
+            withdrawals.append(0.0)
+            taxes.append(0.0)
+            in_hand_withdrawals.append(0.0)
+            portfolio_values.append(0.0)
+            depleted = True
+            continue
+            
+        months_lasted += 1
+        
+        # 1. Determine monthly withdrawal amount
+        if percent_withdrawal:
+            # w_amount is annual percentage
+            m_withdrawal = portfolio * (w_amount / 100.0) / 12
+        else:
+            m_withdrawal = w_amount
+            # Adjust for inflation annually (at the start of month 13, 25, etc.)
+            if inflation_adjusted and m > 1 and (m - 1) % 12 == 0:
+                w_amount *= (1 + (inflation_rate / 100.0))
+                m_withdrawal = w_amount
+                
+        # Ensure we don't withdraw more than what is left
+        if m_withdrawal > portfolio:
+            m_withdrawal = portfolio
+            
+        # 2. Calculate tax on withdrawal
+        tax = 0.0
+        gains_ratio = (portfolio - basis) / portfolio if portfolio > 0 else 0.0
+        gains_ratio = max(0.0, gains_ratio)
+        
+        gw = m_withdrawal * gains_ratio
+        
+        # Reset yearly gain at the start of each year
+        if (m - 1) % 12 == 0:
+            yearly_gain = 0.0
+            
+        if category == "Crypto":
+            tax = 0.30 * gw
+        elif category == "Mutual Fund" and mf_type == "Debt-Oriented":
+            tax = (slab_rate_pct / 100.0) * gw
+        else:
+            # Equity: 12.5% tax on cumulative yearly gains above 1.25L
+            prev_yearly_gain = yearly_gain
+            yearly_gain += gw
+            
+            if yearly_gain > 125000.0:
+                taxable_portion = yearly_gain - max(125000.0, prev_yearly_gain)
+                tax = 0.125 * taxable_portion
+                
+        # 3. Update basis proportionally
+        f = m_withdrawal / portfolio if portfolio > 0 else 0.0
+        basis = basis * (1.0 - f)
+        
+        # 4. Debit portfolio and compound remaining balance
+        portfolio = (portfolio - m_withdrawal) * (1.0 + monthly_rate)
+        if portfolio < 0.0:
+            portfolio = 0.0
+            
+        portfolio_values.append(portfolio)
+        withdrawals.append(m_withdrawal)
+        taxes.append(tax)
+        in_hand_withdrawals.append(max(0.0, m_withdrawal - tax))
+        
+        total_withdrawn += m_withdrawal
+        total_tax_paid += tax
+        
+    years_lasted = months_lasted / 12.0
+    
+    return {
+        "dates": dates,
+        "portfolio_values": portfolio_values[1:],
+        "withdrawals": withdrawals,
+        "taxes": taxes,
+        "in_hand_withdrawals": in_hand_withdrawals,
+        "total_withdrawn": total_withdrawn,
+        "total_tax_paid": total_tax_paid,
+        "years_lasted": years_lasted,
+        "depleted": depleted
+    }
+
+def solve_sustainable_withdrawal(initial_corpus, initial_basis, annual_return_rate, inflation_rate, category, mf_type, slab_rate_pct, years, inflation_adjusted=False):
+    """
+    Find the sustainable monthly withdrawal (W) in Rupees using bisection method.
+    """
+    low = 0.0
+    high = float(initial_corpus)
+    
+    for _ in range(50):
+        mid = (low + high) / 2.0
+        res = run_swp_simulation(
+            initial_corpus=initial_corpus,
+            initial_basis=initial_basis,
+            monthly_withdrawal=mid,
+            annual_return_rate=annual_return_rate,
+            inflation_rate=inflation_rate,
+            category=category,
+            mf_type=mf_type,
+            slab_rate_pct=slab_rate_pct,
+            max_years=years,
+            inflation_adjusted=inflation_adjusted,
+            percent_withdrawal=False
+        )
+        
+        if res['depleted']:
+            high = mid
+        else:
+            final_bal = res['portfolio_values'][-1]
+            if final_bal < 100.0:
+                # Close enough to 0 depletion
+                low = mid
+            else:
+                low = mid
+                
+    return (low + high) / 2.0
