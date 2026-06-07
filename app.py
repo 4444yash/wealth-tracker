@@ -980,7 +980,7 @@ elif asset_id:
                 )
                 
                 proj_years = st.slider(
-                    "Total Simulation Period (Years)", 
+                    "Growth Period before SWP starts (Years)", 
                     min_value=1, 
                     max_value=40, 
                     value=10, 
