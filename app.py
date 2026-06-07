@@ -5,6 +5,9 @@ from mftool import Mftool
 import datetime
 import requests
 import plotly.graph_objects as go
+import importlib
+import finance_utils
+importlib.reload(finance_utils)
 from finance_utils import to_date, xirr, cagr, calculate_indian_tax, project_future_tax, run_swp_simulation, solve_sustainable_withdrawal
 
 # --- Page Config ---
