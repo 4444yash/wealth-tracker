@@ -209,24 +209,33 @@ def calculate_indian_tax(category, mf_type, is_sip, amount, investment_dates, in
         'details': details
     }
 
-def project_future_tax(category, mf_type, slab_rate_pct, proj_amount, annual_rate, years):
+def project_future_tax(category, mf_type, slab_rate_pct, proj_amount, annual_rate, total_years, sip_years=None):
     """
-    Project tax liabilities at the end of a future investment timeline.
+    Project tax liabilities at the end of a future investment timeline with optional limited SIP duration.
+    
+    Parameters:
+    - total_years (int): Total simulation timeline (years)
+    - sip_years (int): Number of years the SIP is active. If None or equal to total_years, SIP runs for the whole timeline.
     
     Returns:
     - (tax_amount, total_fv)
     """
-    months = years * 12
+    if sip_years is None or sip_years > total_years:
+        sip_years = total_years
+        
+    total_months = total_years * 12
+    sip_months = int(sip_years * 12)
     monthly_rate = (annual_rate / 100.0) / 12
     
     ltcg_gains = 0.0
     stcg_gains = 0.0
     total_fv = 0.0
-    total_invested = proj_amount * months
+    total_invested = proj_amount * sip_months
     
-    for m in range(1, months + 1):
-        # h_months is how long this installment compounds till end of timeline
-        h_months = months - m + 1
+    # Calculate for each active SIP installment
+    for m in range(1, sip_months + 1):
+        # h_months is how long this installment compounds till the end of the total timeline
+        h_months = total_months - m + 1
         if monthly_rate > 0:
             fv_inst = proj_amount * ((1 + monthly_rate) ** h_months)
         else:
@@ -236,7 +245,6 @@ def project_future_tax(category, mf_type, slab_rate_pct, proj_amount, annual_rat
         total_fv += fv_inst
         
         if category == "Crypto" or (category == "Mutual Fund" and mf_type == "Debt-Oriented"):
-            # No holding period split needed for simple overall gain tax
             pass
         else:
             if h_months >= 12:

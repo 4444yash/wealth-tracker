@@ -124,10 +124,14 @@ def get_currency_symbol(asset_id, category):
     return "₹"
 
 # --- Timeseries Calculations ---
-def calculate_sip_timeseries(data, amount):
+def calculate_sip_timeseries(data, amount, sip_stop_date=None):
     monthly_investment_indices = []
     last_yr_mo = None
     for idx, row in data.iterrows():
+        # Stop investments after the stop date
+        if sip_stop_date is not None and idx.date() > sip_stop_date:
+            continue
+            
         yr_mo = (idx.year, idx.month)
         if yr_mo != last_yr_mo:
             monthly_investment_indices.append(idx)
@@ -174,10 +178,12 @@ def calculate_lumpsum_timeseries(data, amount):
     
     return ts_df
 
-def compute_comparison(data, amount):
+def compute_comparison(data, amount, sip_stop_date=None):
     monthly_investment_indices = []
     last_yr_mo = None
     for idx, row in data.iterrows():
+        if sip_stop_date is not None and idx.date() > sip_stop_date:
+            continue
         yr_mo = (idx.year, idx.month)
         if yr_mo != last_yr_mo:
             monthly_investment_indices.append(idx)
@@ -186,7 +192,7 @@ def compute_comparison(data, amount):
     num_installments = len(monthly_investment_indices)
     total_capital = amount * num_installments
     
-    sip_ts = calculate_sip_timeseries(data, amount)
+    sip_ts = calculate_sip_timeseries(data, amount, sip_stop_date)
     lump_ts = calculate_lumpsum_timeseries(data, total_capital)
     
     return sip_ts, lump_ts, total_capital
@@ -344,24 +350,38 @@ def plot_tax_comparison_bars(total_invested, pre_tax_val, post_tax_val, curr_sym
     )
     return fig
 
-def plot_future_projection(monthly_amount, annual_rate, years, tax_amount=0.0):
-    months = years * 12
+def plot_future_projection(monthly_amount, annual_rate, total_years, sip_years=None, tax_amount=0.0):
+    if sip_years is None or sip_years > total_years:
+        sip_years = total_years
+        
+    total_months = total_years * 12
+    sip_months = int(sip_years * 12)
     monthly_rate = (annual_rate / 100.0) / 12
     
     dates = []
     invested_vals = []
     portfolio_vals = []
     
-    current_invested = 0
+    current_invested = 0.0
+    current_value = 0.0
     today = datetime.date.today()
     
-    for month in range(1, months + 1):
+    for month in range(1, total_months + 1):
         dt = today + datetime.timedelta(days=month * 30.436)
-        current_invested += monthly_amount
-        if monthly_rate > 0:
-            current_value = monthly_amount * (((1 + monthly_rate) ** month - 1) / monthly_rate) * (1 + monthly_rate)
+        
+        # Invest if within active SIP months
+        if month <= sip_months:
+            current_invested += monthly_amount
+            # Compound SIP formula
+            if monthly_rate > 0:
+                current_value = monthly_amount * (((1 + monthly_rate) ** month - 1) / monthly_rate) * (1 + monthly_rate)
+            else:
+                current_value = current_invested
         else:
-            current_value = current_invested
+            # SIP stopped, compound the value of the portfolio at the stop date as lumpsum
+            if monthly_rate > 0:
+                current_value = current_value * (1 + monthly_rate)
+            # current_invested stays flat
             
         dates.append(dt)
         invested_vals.append(current_invested)
@@ -380,14 +400,10 @@ def plot_future_projection(monthly_amount, annual_rate, years, tax_amount=0.0):
     ))
     
     if tax_amount > 0:
-        # Subtract tax at the end (flat-rate or estimated trajectory, shown as a post-tax drop at end)
-        post_tax_vals = list(portfolio_vals)
-        post_tax_vals[-1] = max(0.0, post_tax_vals[-1] - tax_amount)
-        
-        # We plot the post tax end point specifically or as a line showing projected tax gap
+        post_tax_val = max(0.0, portfolio_vals[-1] - tax_amount)
         fig.add_trace(go.Scatter(
             x=[dates[-1]],
-            y=[post_tax_vals[-1]],
+            y=[post_tax_val],
             mode='markers+text',
             name='In-Hand Value (Post-Tax)',
             marker=dict(color='#FFDD57', size=12, symbol='star'),
@@ -405,7 +421,7 @@ def plot_future_projection(monthly_amount, annual_rate, years, tax_amount=0.0):
     
     fig.update_layout(
         title=dict(
-            text=f"Future Wealth Projection ({years} Years @ {annual_rate}% Expected Return)",
+            text=f"Future Wealth Projection ({total_years} Years @ {annual_rate}% Expected Return)",
             font=dict(size=18, family="Plus Jakarta Sans", color="#FFFFFF")
         ),
         xaxis_title="Timeline",
@@ -552,6 +568,17 @@ five_years_ago = today - datetime.timedelta(days=5*365)
 start_date = st.sidebar.date_input("Start Date", five_years_ago)
 end_date = st.sidebar.date_input("End Date", today)
 
+sip_stop_date = None
+if invest_type == "SIP":
+    limit_sip = st.sidebar.checkbox("Limit SIP Duration (Stop & Hold)", value=False, 
+                                     help="Allows you to run the SIP for a certain time, then stop, leaving the money invested until the end date.")
+    if limit_sip:
+        # Default stop date is halfway through
+        default_stop = start_date + (end_date - start_date) / 2
+        sip_stop_date = st.sidebar.date_input("SIP Stop Date", default_stop)
+        if sip_stop_date < start_date or sip_stop_date > end_date:
+            st.sidebar.error("SIP Stop Date must fall between Start Date and End Date.")
+
 amount_label = "Monthly SIP Amount" if invest_type == "SIP" else "Lumpsum Investment Amount"
 amount = st.sidebar.number_input(amount_label, min_value=10.0, value=5000.0, step=100.0)
 
@@ -591,6 +618,8 @@ elif asset_id:
         monthly_investment_indices = []
         last_yr_mo = None
         for idx, row in data.iterrows():
+            if sip_stop_date is not None and idx.date() > sip_stop_date:
+                continue
             yr_mo = (idx.year, idx.month)
             if yr_mo != last_yr_mo:
                 monthly_investment_indices.append(idx)
@@ -612,7 +641,7 @@ elif asset_id:
             inv_dates = [data.index[0]]
             inv_prices = [float(data.iloc[0]['Price'])]
         else: # SIP
-            ts_df = calculate_sip_timeseries(data, amount)
+            ts_df = calculate_sip_timeseries(data, amount, sip_stop_date)
             total_invested = float(ts_df.iloc[-1]['Invested'])
             current_value = float(ts_df.iloc[-1]['Portfolio Value'])
             delta_val = current_value - total_invested
@@ -748,7 +777,7 @@ elif asset_id:
                 st.metric("Wealth Multiplier (Pre-Tax)", f"{multiplier:.2f}x")
                 
         with tab2:
-            sip_ts, lump_ts, total_capital = compute_comparison(data, amount)
+            sip_ts, lump_ts, total_capital = compute_comparison(data, amount, sip_stop_date)
             
             # SIP Pre-tax
             sip_final_val_pre = float(sip_ts.iloc[-1]['Portfolio Value'])
@@ -884,12 +913,24 @@ elif asset_id:
                 )
                 
                 proj_years = st.slider(
-                    "Investment Period (Years)", 
+                    "Total Simulation Period (Years)", 
                     min_value=1, 
                     max_value=40, 
                     value=10, 
                     key="proj_years"
                 )
+                
+                limit_future_sip = st.checkbox("Limit SIP Duration (Stop & Hold)", value=False, key="limit_future_sip")
+                if limit_future_sip:
+                    future_sip_years = st.slider(
+                        "SIP Active Period (Years)", 
+                        min_value=1, 
+                        max_value=int(proj_years), 
+                        value=min(5, int(proj_years)),
+                        key="future_sip_years"
+                    )
+                else:
+                    future_sip_years = proj_years
                 
             # Project future tax
             if apply_tax:
@@ -899,7 +940,8 @@ elif asset_id:
                     slab_rate_pct=float(slab_rate),
                     proj_amount=proj_amount,
                     annual_rate=proj_rate,
-                    years=proj_years
+                    total_years=proj_years,
+                    sip_years=future_sip_years
                 )
             else:
                 proj_tax = 0.0
@@ -909,10 +951,11 @@ elif asset_id:
                     slab_rate_pct=float(slab_rate),
                     proj_amount=proj_amount,
                     annual_rate=proj_rate,
-                    years=proj_years
+                    total_years=proj_years,
+                    sip_years=future_sip_years
                 )
                 
-            total_proj_invested = proj_amount * proj_years * 12
+            total_proj_invested = proj_amount * future_sip_years * 12
             final_proj_val_post = final_proj_val_pre - proj_tax
             proj_gain_pre = final_proj_val_pre - total_proj_invested
             proj_gain_post = final_proj_val_post - total_proj_invested
@@ -934,7 +977,7 @@ elif asset_id:
                     else:
                         st.markdown(metric_card("Wealth Multiplier", f"{final_proj_val_pre / total_proj_invested:.2f}x", curr_symbol=curr_symbol), unsafe_allow_html=True)
             
-            fig_proj, _, _ = plot_future_projection(proj_amount, proj_rate, proj_years, tax_amount=proj_tax)
+            fig_proj, _, _ = plot_future_projection(proj_amount, proj_rate, proj_years, sip_years=future_sip_years, tax_amount=proj_tax)
             st.plotly_chart(fig_proj, use_container_width=True)
             
         # Education section
