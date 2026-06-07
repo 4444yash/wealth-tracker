@@ -537,7 +537,7 @@ def search_yahoo_finance(query, asset_type):
                     
             return results
     except Exception as e:
-        st.sidebar.error(f"Search API Error: {e}")
+        st.error(f"Search API Error: {e}")
     
     return {}
 
@@ -572,96 +572,103 @@ def get_mf_data(schema_code, start, end):
         st.error(f"Error fetching MF data: {e}")
     return pd.DataFrame()
 
-# --- Sidebar Inputs ---
-st.sidebar.header("Investment Parameters")
-category = st.sidebar.selectbox("Instrument Category", ["Stocks", "Crypto", "Mutual Fund"])
-
-asset_name = ""
-asset_id = ""
-
-if category in ["Stocks", "Crypto"]:
-    st.sidebar.markdown(f"**Search for {category}**")
+# --- Main App Logic Configuration ---
+with st.container():
+    st.markdown("### ⚙️ Configure Investment Parameters")
     
-    if 'search_query' not in st.session_state:
-        st.session_state.search_query = 'Reliance' if category == 'Stocks' else 'Bitcoin'
+    col_input1, col_input2 = st.columns(2)
+    with col_input1:
+        category = st.selectbox("Instrument Category", ["Stocks", "Crypto", "Mutual Fund"])
         
-    search_input = st.sidebar.text_input("Type to search...", st.session_state.search_query)
-    st.session_state.search_query = search_input
-    
-    search_results = search_yahoo_finance(search_input, category)
-    
-    if search_results:
-        selected_display = st.sidebar.selectbox("Select Asset", list(search_results.keys()))
-        asset_id = search_results[selected_display]
-        asset_name = selected_display
-    elif len(search_input) >= 2:
-        st.sidebar.warning(f"No {category.lower()} found matching '{search_input}'.")
-
-elif category == "Mutual Fund":
-    mf_catalog = get_mutual_funds()
-    if mf_catalog:
-        mf_options = {name: code for code, name in mf_catalog.items()}
-        search_names = list(mf_options.keys())
+        asset_name = ""
+        asset_id = ""
         
-        mf_search = st.sidebar.text_input("Filter Mutual Funds (e.g. Parag Parikh, HDFC)...", "Parag Parikh")
-        filtered_names = [name for name in search_names if mf_search.lower() in name.lower()]
-        
-        if filtered_names:
-            default_idx = 0
-            for i, name in enumerate(filtered_names):
-                if "Flexi Cap" in name and "Direct" in name and "Growth" in name:
-                    default_idx = i
-                    break
+        if category in ["Stocks", "Crypto"]:
+            if 'search_query' not in st.session_state:
+                st.session_state.search_query = 'Reliance' if category == 'Stocks' else 'Bitcoin'
+                
+            search_input = st.text_input(f"Search for {category}...", st.session_state.search_query)
+            st.session_state.search_query = search_input
             
-            selected_mf_name = st.sidebar.selectbox("Select Mutual Fund", filtered_names, index=default_idx)
-            asset_id = mf_options[selected_mf_name]
-            asset_name = selected_mf_name
-        else:
-            st.sidebar.warning("No matching Mutual Fund found. Clear search or try another keyword.")
-    else:
-        st.sidebar.error("Failed to load Mutual Fund list.")
+            search_results = search_yahoo_finance(search_input, category)
+            
+            if search_results:
+                selected_display = st.selectbox("Select Asset", list(search_results.keys()))
+                asset_id = search_results[selected_display]
+                asset_name = selected_display
+            elif len(search_input) >= 2:
+                st.warning(f"No {category.lower()} found matching '{search_input}'.")
+                
+        elif category == "Mutual Fund":
+            mf_catalog = get_mutual_funds()
+            if mf_catalog:
+                mf_options = {name: code for code, name in mf_catalog.items()}
+                search_names = list(mf_options.keys())
+                
+                mf_search = st.text_input("Filter Mutual Funds (e.g. Parag Parikh, HDFC)...", "Parag Parikh")
+                filtered_names = [name for name in search_names if mf_search.lower() in name.lower()]
+                
+                if filtered_names:
+                    default_idx = 0
+                    for i, name in enumerate(filtered_names):
+                        if "Flexi Cap" in name and "Direct" in name and "Growth" in name:
+                            default_idx = i
+                            break
+                    
+                    selected_mf_name = st.selectbox("Select Mutual Fund", filtered_names, index=default_idx)
+                    asset_id = mf_options[selected_mf_name]
+                    asset_name = selected_mf_name
+                else:
+                    st.warning("No matching Mutual Fund found. Clear search or try another keyword.")
+            else:
+                st.error("Failed to load Mutual Fund list.")
 
-invest_type = st.sidebar.selectbox("Investment Type", ["Lumpsum", "SIP"])
+    with col_input2:
+        invest_type = st.selectbox("Investment Type", ["Lumpsum", "SIP"])
+        
+        amount_label = "Monthly SIP Amount" if invest_type == "SIP" else "Lumpsum Investment Amount"
+        amount = st.number_input(amount_label, min_value=10.0, value=5000.0, step=100.0)
 
-today = datetime.date.today()
-five_years_ago = today - datetime.timedelta(days=5*365)
-start_date = st.sidebar.date_input("Start Date", five_years_ago)
-end_date = st.sidebar.date_input("End Date", today)
+    col_input3, col_input4 = st.columns(2)
+    with col_input3:
+        today = datetime.date.today()
+        five_years_ago = today - datetime.timedelta(days=5*365)
+        start_date = st.date_input("Start Date", five_years_ago)
+        end_date = st.date_input("End Date", today)
 
-sip_stop_date = None
-if invest_type == "SIP":
-    limit_sip = st.sidebar.checkbox("Limit SIP Duration (Stop & Hold)", value=False, 
-                                     help="Allows you to run the SIP for a certain time, then stop, leaving the money invested until the end date.")
-    if limit_sip:
-        # Default stop date is halfway through
-        default_stop = start_date + (end_date - start_date) / 2
-        sip_stop_date = st.sidebar.date_input("SIP Stop Date", default_stop)
-        if sip_stop_date < start_date or sip_stop_date > end_date:
-            st.sidebar.error("SIP Stop Date must fall between Start Date and End Date.")
+    with col_input4:
+        sip_stop_date = None
+        if invest_type == "SIP":
+            limit_sip = st.checkbox("Limit SIP Duration (Stop & Hold)", value=False, 
+                                             help="Allows you to run the SIP for a certain time, then stop, leaving the money invested until the end date.")
+            if limit_sip:
+                # Default stop date is halfway through
+                default_stop = start_date + (end_date - start_date) / 2
+                sip_stop_date = st.date_input("SIP Stop Date", default_stop)
+                if sip_stop_date < start_date or sip_stop_date > end_date:
+                    st.error("SIP Stop Date must fall between Start Date and End Date.")
 
-amount_label = "Monthly SIP Amount" if invest_type == "SIP" else "Lumpsum Investment Amount"
-amount = st.sidebar.number_input(amount_label, min_value=10.0, value=5000.0, step=100.0)
-
-# --- Tax Parameters in Sidebar ---
-st.sidebar.markdown("---")
-st.sidebar.header("🇮🇳 Tax Configuration")
-apply_tax = st.sidebar.checkbox("Apply Capital Gains Tax Layer", value=True)
-
-mf_type = "Equity-Oriented"
-slab_rate = 30.0
-
-if apply_tax:
-    if category == "Mutual Fund":
-        mf_type = st.sidebar.selectbox("Mutual Fund Category", ["Equity-Oriented", "Debt-Oriented"], 
-                                       help="Equity mutual funds are taxed at 12.5% LTCG (>1 year) / 20% STCG. Debt funds are taxed at your slab rate.")
-    
-    if category == "Mutual Fund" and mf_type == "Debt-Oriented":
-        slab_rate = st.sidebar.selectbox("Your Income Tax Slab Rate (%)", [5.0, 10.0, 15.0, 20.0, 30.0, 39.0], index=4, 
-                                         help="Marginal tax slab rate applicable to you. Debt fund gains are added directly to your income.")
+    # Tax parameters inside a clean expander to optimize vertical space
+    with st.expander("🇮🇳 Indian Capital Gains Tax Configuration", expanded=False):
+        apply_tax = st.checkbox("Apply Capital Gains Tax Layer", value=True)
+        
+        mf_type = "Equity-Oriented"
+        slab_rate = 30.0
+        
+        if apply_tax:
+            tax_col1, tax_col2 = st.columns(2)
+            with tax_col1:
+                if category == "Mutual Fund":
+                    mf_type = st.selectbox("Mutual Fund Category", ["Equity-Oriented", "Debt-Oriented"], 
+                                                   help="Equity mutual funds are taxed at 12.5% LTCG (>1 year) / 20% STCG. Debt funds are taxed at your slab rate.")
+            with tax_col2:
+                if category == "Mutual Fund" and mf_type == "Debt-Oriented":
+                    slab_rate = st.selectbox("Your Income Tax Slab Rate (%)", [5.0, 10.0, 15.0, 20.0, 30.0, 39.0], index=4, 
+                                                     help="Marginal tax slab rate applicable to you. Debt fund gains are added directly to your income.")
 
 # --- Main App Logic ---
 if start_date > end_date:
-    st.sidebar.error("Error: End date must fall after start date.")
+    st.error("Error: End date must fall after start date.")
 elif asset_id:
     data = pd.DataFrame()
     st.subheader(asset_name)
