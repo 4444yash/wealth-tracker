@@ -1059,35 +1059,25 @@ elif asset_id:
             else:
                 default_swp_basis = default_swp_corpus
                 
-            swp_col1, swp_col2 = st.columns(2)
-            with swp_col1:
-                initial_swp_corpus = st.number_input(
-                    "Initial SWP Corpus (₹)",
-                    min_value=0.0,
-                    value=float(default_swp_corpus),
-                    step=50000.0,
-                    help="The starting value of your retirement portfolio. Auto-filled from the SIP Projector's final value."
-                )
-            with swp_col2:
-                initial_swp_basis = st.number_input(
-                    "Initial Cost Basis (₹)",
-                    min_value=0.0,
-                    value=float(default_swp_basis),
-                    step=50000.0,
-                    help="The total capital invested to build this corpus. Used to calculate capital gains tax on withdrawals."
-                )
-                
+            initial_swp_corpus = st.number_input(
+                "Initial Retirement Corpus (₹)",
+                min_value=0.0,
+                value=float(default_swp_corpus),
+                step=50000.0,
+                help="The starting value of your retirement portfolio. Auto-filled from the SIP Projector's final value."
+            )
+            
             swp_mode = st.radio(
-                "SWP Calculation Mode",
-                ["Calculate Sustainable Withdrawal (Specify Period)", "Calculate Depletion Timeline (Specify Monthly Withdrawal)"],
+                "What would you like to calculate?",
+                ["💰 How much can I withdraw monthly?", "⏳ How long will my money last?"],
                 horizontal=True,
-                help="Choose whether to solve for a sustainable monthly payout for a fixed duration, or check how long a specific withdrawal amount will last."
+                help="Choose whether to calculate a safe monthly withdrawal amount for a target period, or to see how long your money lasts with a target monthly withdrawal."
             )
             
             col_ctrl1, col_ctrl2 = st.columns(2)
             
             with col_ctrl1:
-                if swp_mode == "Calculate Sustainable Withdrawal (Specify Period)":
+                if swp_mode == "💰 How much can I withdraw monthly?":
                     swp_years = st.slider(
                         "Target Withdrawal Period (Years)",
                         min_value=1,
@@ -1101,12 +1091,6 @@ elif asset_id:
                     # Default monthly withdrawal is ~4% annual withdrawal rate
                     suggested_w = max(1000.0, round((initial_swp_corpus * 0.04) / 12, -3))
                     
-                    # We will read this from the advanced settings toggle below
-                    # But since python executes top-to-bottom, we can check a temporary flag
-                    # to see if the user selected % of portfolio.
-                    # To avoid circular rendering, we can define percent_withdrawal first using st.checkbox's state if we set a key,
-                    # or just put the % checkbox in the advanced section and let it refresh the input label.
-                    # Streamlit handles keys perfectly:
                     percent_withdrawal = st.session_state.get("percent_withdrawal", False)
                     
                     if percent_withdrawal:
@@ -1128,16 +1112,16 @@ elif asset_id:
                         )
                         
             with col_ctrl2:
-                if swp_mode == "Calculate Sustainable Withdrawal (Specify Period)":
+                if swp_mode == "💰 How much can I withdraw monthly?":
                     st.info("ℹ️ The engine will compute the maximum monthly withdrawal that keeps your portfolio above zero for the target period.")
                 else:
                     swp_years = st.slider(
-                        "Max Simulation Period (Years)",
+                        "Target Withdrawal Period (Years)",
                         min_value=1,
                         max_value=40,
                         value=25,
                         step=1,
-                        help="The maximum period to run the simulation if the portfolio does not deplete."
+                        help="The target period you want your portfolio to survive."
                     )
                     
             with st.expander("🛠️ Advanced SWP Settings"):
@@ -1159,6 +1143,13 @@ elif asset_id:
                         step=0.5,
                         help="Expected average inflation. If adjusted, withdrawals will increase annually to maintain purchasing power."
                     )
+                    initial_swp_basis = st.number_input(
+                        "Initial Cost Basis (₹)",
+                        min_value=0.0,
+                        value=float(default_swp_basis),
+                        step=50000.0,
+                        help="The total capital invested to build this corpus. Used to calculate capital gains tax on withdrawals."
+                    )
                 with adv_col2:
                     swp_tax_option = st.selectbox(
                         "Tax Rules for Retirement Phase",
@@ -1172,7 +1163,7 @@ elif asset_id:
                         help="Increase withdrawals annually by the inflation rate to maintain real purchasing power."
                     )
                     
-                    if swp_mode == "Calculate Depletion Timeline (Specify Monthly Withdrawal)":
+                    if swp_mode == "⏳ How long will my money last?":
                         percent_withdrawal = st.checkbox(
                             "Use % of Portfolio Strategy",
                             value=False,
@@ -1210,7 +1201,7 @@ elif asset_id:
                 swp_slab_rate = 0.0
                 
             # Run simulation or solver
-            if swp_mode == "Calculate Sustainable Withdrawal (Specify Period)":
+            if swp_mode == "💰 How much can I withdraw monthly?":
                 solved_w = solve_sustainable_withdrawal(
                     initial_corpus=initial_swp_corpus,
                     initial_basis=initial_swp_basis,
@@ -1273,6 +1264,86 @@ elif asset_id:
                 survival_status = "Sustainable"
                 survival_color = "green"
                 survival_icon = "🟢"
+                
+            # Display Plain-English Verdict & Suggestion Engine
+            st.markdown("#### 🎯 Plan Verdict")
+            if swp_mode == "💰 How much can I withdraw monthly?":
+                if solved_w > 10.0:
+                    st.info(f"💡 **Verdict**: To make your corpus last **{swp_years} years**, you can safely withdraw a maximum of **{curr_symbol} {solved_w:,.0f} / month** (estimated **{curr_symbol} {post_tax_income:,.0f} / month** in-hand post-tax).")
+                else:
+                    st.error(f"🔴 **Verdict**: Your corpus is too small to sustain any withdrawals for **{swp_years} years** after accounting for inflation and taxes.")
+            else:
+                # Depletion Timeline Mode
+                if res['depleted']:
+                    def solve_required_corpus(target_w, initial_basis_ratio, annual_return_rate, inflation_rate, category, mf_type, slab_rate_pct, years, inflation_adjusted):
+                        low_c = 0.0
+                        high_c = target_w * 12 * years * 2
+                        if high_c < 10000.0:
+                            high_c = 10000000.0
+                        for _ in range(35):
+                            mid_c = (low_c + high_c) / 2.0
+                            basis_mid = mid_c * initial_basis_ratio
+                            sim = run_swp_simulation(
+                                initial_corpus=mid_c,
+                                initial_basis=basis_mid,
+                                monthly_withdrawal=target_w,
+                                annual_return_rate=annual_return_rate,
+                                inflation_rate=inflation_rate,
+                                category=category,
+                                mf_type=mf_type,
+                                slab_rate_pct=slab_rate_pct,
+                                max_years=years,
+                                inflation_adjusted=inflation_adjusted,
+                                percent_withdrawal=False
+                            )
+                            if sim['depleted']:
+                                low_c = mid_c
+                            else:
+                                high_c = mid_c
+                        return (low_c + high_c) / 2.0
+
+                    basis_ratio = (initial_swp_basis / initial_swp_corpus) if initial_swp_corpus > 0 else 1.0
+                    
+                    if percent_withdrawal:
+                        st.error(f"🔴 **Verdict**: Your target withdrawal rate of **{monthly_withdrawal:.2f}% / year** will deplete your portfolio in **{res['years_lasted']:.1f} years** (before your target of {swp_years} years).")
+                    else:
+                        req_c = solve_required_corpus(
+                            target_w=monthly_withdrawal,
+                            initial_basis_ratio=basis_ratio,
+                            annual_return_rate=swp_rate,
+                            inflation_rate=swp_inflation,
+                            category=swp_category,
+                            mf_type=swp_mf_type,
+                            slab_rate_pct=swp_slab_rate,
+                            years=swp_years,
+                            inflation_adjusted=inflation_adjusted
+                        )
+                        sust_w = solve_sustainable_withdrawal(
+                            initial_corpus=initial_swp_corpus,
+                            initial_basis=initial_swp_basis,
+                            annual_return_rate=swp_rate,
+                            inflation_rate=swp_inflation,
+                            category=swp_category,
+                            mf_type=swp_mf_type,
+                            slab_rate_pct=swp_slab_rate,
+                            years=swp_years,
+                            inflation_adjusted=inflation_adjusted
+                        )
+                        
+                        st.error(f"🔴 **Verdict**: Your corpus of **{curr_symbol} {initial_swp_corpus:,.0f}** will run out of funds early in **{res['years_lasted']:.1f} years** at a monthly withdrawal of **{curr_symbol} {monthly_withdrawal:,.0f}**.")
+                        
+                        # Show Actionable Recommendations
+                        st.markdown("##### 💡 Recommendations to achieve your goal:")
+                        st.markdown(f"""
+                        * 📉 **Option A (Lower Withdrawal)**: Reduce your monthly withdrawal to **{curr_symbol} {sust_w:,.0f} / month** to make your current corpus last the full **{swp_years} years**.
+                        * 📈 **Option B (Higher Capital)**: Increase your retirement corpus by **{curr_symbol} {max(0.0, req_c - initial_swp_corpus):,.0f}** (to a total of **{curr_symbol} {req_c:,.0f}**) to safely sustain your target withdrawal of **{curr_symbol} {monthly_withdrawal:,.0f} / month** for **{swp_years} years**.
+                        * ⏳ **Option C (Extend Savings)**: Go to the SIP Projector above and increase your savings period by a few years to build the required **{curr_symbol} {req_c:,.0f}** corpus before starting withdrawals.
+                        """)
+                else:
+                    if percent_withdrawal:
+                        st.success(f"🟢 **Verdict**: Your percentage-based withdrawal rate of **{monthly_withdrawal:.2f}% / year** is **fully sustainable**! Your portfolio survives the target **{swp_years} years** with a remaining balance of **{curr_symbol} {res['portfolio_values'][-1]:,.0f}**.")
+                    else:
+                        st.success(f"🟢 **Verdict**: Your corpus is **fully sustainable**! At **{curr_symbol} {monthly_withdrawal:,.0f} / month**, your money will last the entire **{swp_years} years** with a remaining balance of **{curr_symbol} {res['portfolio_values'][-1]:,.0f}**.")
                 
             # Display metrics cards
             st.markdown("#### 📊 Key SWP Metrics")
