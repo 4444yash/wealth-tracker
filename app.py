@@ -505,6 +505,7 @@ def get_yfinance_data(ticker, start, end):
         df = ticker_obj.history(start=start, end=end)
         if not df.empty:
             df = df[['Close']].rename(columns={'Close': 'Price'})
+            df = df.dropna(subset=['Price'])
             df.index = pd.to_datetime(df.index).tz_localize(None)
             return df
     except Exception as e:
@@ -565,6 +566,7 @@ def get_mf_data(schema_code, start, end):
             df['nav'] = pd.to_numeric(df['nav'], errors='coerce')
             df = df.set_index('date').sort_index()
             df = df.rename(columns={'nav': 'Price'})
+            df = df.dropna(subset=['Price'])
             
             mask = (df.index.date >= start) & (df.index.date <= end)
             return df.loc[mask]
